@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kaiju Battle Fight</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+[hidden]{display:none!important}
+/* Layout: one phone screen. HUD (robot HP, kaiju HP + weak point, beam), two lanes (DEFENSE / ATTACK), pilot's moves, charge + fire, team feed. Single dark cockpit look by choice. */
+:root {
+  --bg: #0b0f14; --panel: #121a22; --edge: #223040;
+  --fg: #d9e4ee; --dim: #7b8da0;
+  --amber: #ffb224; --red: #ff4d4d; --green: #4ddc8a; --cyan: #52d6ff; --violet: #c77dff;
+  --display: "Chakra Petch", "Arial Narrow", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font-family: var(--mono);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px;
+  max-width: 560px; margin-inline: auto; overflow: auto;
+  -webkit-user-select: none; user-select: none; touch-action: manipulation;
+}
+h1 { font-family: var(--display); font-size: .9rem; letter-spacing: .14em; text-transform: uppercase; margin: 0; color: var(--amber); display: flex; justify-content: space-between; align-items: baseline; flex: none; }
+h1 small { font-family: var(--mono); font-size: .64rem; color: var(--dim); letter-spacing: .04em; text-transform: none; }
+
+.bars { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; flex: none; }
+.bar { background: var(--panel); border: 1px solid var(--edge); padding: 4px 8px; min-width: 0; }
+.bar.wide { grid-column: 1 / -1; }
+.bar label { display: flex; justify-content: space-between; font-size: .6rem; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); font-variant-numeric: tabular-nums; }
+.bar .track { height: 8px; background: #0a0d11; margin-top: 3px; overflow: hidden; position: relative; }
+.bar .fill { height: 100%; transition: width .15s; }
+#hpFill { background: var(--cyan); width: 100%; }
+#kFill { background: var(--red); width: 100%; }
+#beamFill { background: var(--amber); width: 0; }
+#beamMark { position: absolute; left: 60%; top: 0; width: 2px; height: 100%; background: var(--fg); opacity: .5; }
+.bar.weak { border-color: var(--violet); box-shadow: 0 0 14px rgba(199,125,255,.4); }
+.bar.weak label span:last-child { color: var(--violet); }
+#weakTrack { height: 3px; background: #0a0d11; margin-top: 2px; }
+#weakFill { height: 100%; width: 0; background: var(--violet); }
+
+.lane { border: 1px solid var(--edge); background: var(--panel); display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; }
+.lane .banner { padding: 4px 10px; display: grid; grid-template-columns: auto 1fr; gap: 0 10px; align-items: baseline; min-height: 34px; flex: none; }
+.lane .kind { font-size: .6rem; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); grid-column: 1 / -1; }
+.lane .text { font-family: var(--display); font-size: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; }
+.lane .hint { font-size: .72rem; color: var(--amber); }
+.lane.idle .text { color: var(--dim); font-size: .85rem; font-weight: 600; }
+.lane.def.on { border-color: var(--red); }
+.lane.atk.on { border-color: var(--green); }
+canvas { display: block; width: 100%; flex: 1 1 0; min-height: 64px; height: auto; background: #070a0e; border-top: 1px solid var(--edge); touch-action: none; cursor: pointer; }
+.lane.on canvas { border-top-color: var(--amber); }
+
+.moves { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; flex: none; }
+.moves button, .power button { font: 700 .76rem var(--display); letter-spacing: .05em; text-transform: uppercase; background: #0d1218; color: var(--fg); border: 1px solid #2b3a4a; border-bottom-width: 3px; padding: 8px 4px; min-height: 42px; cursor: pointer; }
+.moves button:active, .power button:active { transform: translateY(2px); border-bottom-width: 1px; }
+.moves button.call { background: var(--green); color: #052; border-color: var(--green); animation: pulse .6s infinite alternate; }
+.moves button.wrong { background: #3a1212; border-color: var(--red); }
+.moves button:focus-visible, .power button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+@keyframes pulse { to { filter: brightness(1.25); } }
+
+.power { display: grid; grid-template-columns: 2fr 1fr; gap: 6px; flex: none; }
+#chargeBtn { min-height: 54px; font-size: .95rem; border-color: var(--amber); color: var(--amber); }
+#chargeBtn:active { background: #1a1408; }
+#fireBtn { min-height: 54px; font-size: .95rem; color: var(--dim); }
+#fireBtn.armed { background: var(--violet); color: #1a0526; border-color: var(--violet); animation: pulse .5s infinite alternate; }
+#fireBtn small { display: block; font: 600 .62rem var(--mono); letter-spacing: 0; text-transform: none; margin-top: 2px; }
+
+.feed { font-size: .66rem; color: var(--dim); display: grid; gap: 1px; min-height: 3.2em; flex: none; line-height: 1.5; }
+.feed div { display: flex; gap: 8px; }
+.feed .who { color: var(--fg); min-width: 7ch; }
+.feed .g-perfect, .feed .g-great { color: var(--green); } .feed .g-ok { color: var(--fg); } .feed .g-weak { color: var(--amber); } .feed .g-miss { color: var(--red); } .feed .g-beam { color: var(--violet); }
+
+.foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: .64rem; color: var(--dim); flex: none; }
+.foot button { font: 600 .64rem var(--mono); background: transparent; color: var(--dim); border: 1px solid var(--edge); padding: 4px 8px; cursor: pointer; }
+.foot button.warn { color: var(--red); border-color: var(--red); }
+#dev { font-size: .66rem; color: var(--dim); font-variant-numeric: tabular-nums; white-space: pre-wrap; }
+
+.overlay { position: fixed; inset: 0; background: rgba(5,8,12,.94); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 24px; z-index: 20; }
+.overlay h2 { font-family: var(--display); font-size: 1.9rem; margin: 0; text-transform: uppercase; letter-spacing: .08em; color: var(--amber); text-wrap: balance; }
+.overlay p { max-width: 38ch; color: var(--dim); margin: 0; line-height: 1.5; font-size: .84rem; }
+.overlay .how { text-align: left; font-size: .78rem; color: var(--fg); max-width: 42ch; line-height: 1.55; }
+.overlay .how span { color: var(--amber); }
+.overlay button { font: 700 1rem var(--display); letter-spacing: .1em; text-transform: uppercase; background: var(--amber); color: #1a0f00; border: 0; padding: 14px 28px; cursor: pointer; }
+.overlay button.ghost { background: transparent; color: var(--dim); border: 1px solid var(--edge); font-size: .8rem; padding: 10px 18px; }
+.overlay.emerg { background: #1a0a0a; }
+.overlay.emerg h2 { color: var(--red); }
+#repairTrack { width: min(320px, 80vw); height: 18px; background: #0a0d11; border: 1px solid var(--red); }
+#repairFill { height: 100%; width: 0; background: var(--red); }
+#repairBtn { background: var(--red); color: #1a0505; min-width: 200px; min-height: 90px; font-size: 1.3rem; }
+
+.flash { animation: flash .35s; }
+@keyframes flash { 0% { background: #3a1212; } 100% { background: var(--bg); } }
+.beamflash { animation: beamflash .6s; }
+@keyframes beamflash { 0% { background: #2a1040; } 100% { background: var(--bg); } }
+@media (prefers-reduced-motion: reduce) { .flash, .beamflash, .moves button.call, #fireBtn.armed { animation: none; } .bar .fill { transition: none; } }
+</style>
+</head>
+<body>
+
+<h1>Kaiju Battle <small id="who"></small></h1>
+
+<div class="bars">
+  <div class="bar"><label><span>Robot</span><span id="hpNum">100</span></label><div class="track"><div class="fill" id="hpFill"></div></div></div>
+  <div class="bar"><label><span>Beam</span><span id="beamNum">0%</span></label><div class="track"><div class="fill" id="beamFill"></div><div id="beamMark"></div></div></div>
+  <div class="bar wide" id="kBar"><label><span>Kaiju</span><span id="kState">weak point closed</span></label><div class="track"><div class="fill" id="kFill"></div></div><div id="weakTrack"><div id="weakFill"></div></div></div>
+</div>
+
+<div class="lane def idle" id="laneDef">
+  <div class="banner"><div class="kind" id="dKind">Defense</div><div class="text" id="dText">Watching the kaiju…</div><div class="hint" id="dHint"></div></div>
+  <canvas id="cvDef"></canvas>
+</div>
+
+<div class="lane atk idle" id="laneAtk">
+  <div class="banner"><div class="kind" id="aKind">Attack · combo 0</div><div class="text" id="aText">No opening</div><div class="hint" id="aHint"></div></div>
+  <canvas id="cvAtk"></canvas>
+</div>
+
+<div class="moves" id="moves"></div>
+
+<div class="power">
+  <button id="chargeBtn">Charge beam</button>
+  <button id="fireBtn" disabled>Fire<small id="fireDmg">needs 60% + weak point</small></button>
+</div>
+
+<div class="feed" id="feed"></div>
+
+<div class="foot">
+  <span id="clock">0:00</span>
+  <span style="display:flex;gap:6px">
+    <button id="repairOpen" hidden class="warn">Repair system</button>
+    <button id="devToggle">dev stats</button>
+  </span>
+</div>
+<div id="dev" hidden></div>
+
+<div class="overlay" id="intro">
+  <h2>Kaiju Battle</h2>
+  <p>One pilot, one station. Three AI teammates fill the others. The kaiju has 10,000 HP. Ordinary hits chip it; the Hyper Beam is what kills it.</p>
+  <div class="how">
+    <span>Defense:</span> block when the kaiju targets your station.<br>
+    <span>Attack:</span> a good block by anyone calls out a move. If it's one of yours, press it fast, then play it.<br>
+    <span>Combos:</span> landed attacks in a row open the kaiju's <span>weak point</span> for a short time.<br>
+    <span>Charge:</span> tap the charge button whenever you're free. Teammates charge too.<br>
+    <span>Fire</span> into the open weak point at 60%+. Damage climbs steeply with charge: fire early for a scratch, or hold for a kill shot.
+  </div>
+  <button id="startBtn">Start fight</button>
+</div>
+
+<div class="overlay emerg" id="emerg" hidden>
+  <h2>System failure</h2>
+  <p id="emergText"></p>
+  <div id="repairTrack"><div id="repairFill"></div></div>
+  <button id="repairBtn">REPAIR</button>
+  <button id="repairBack" class="ghost">Back to post (leave it broken)</button>
+</div>
+
+<script>
+// ---------- Tuning knobs ----------
+const K = {
+  kaijuHP: 10000,
+  comboThreshold: 4,          // difficulty knob 1
+  attackDamage: 150,          // × microgame score
+  baseInterval: 3400, intervalJitter: 0.35,
+  baseDamage: 16,
+  counterMinQ: 0.3, comboMinScore: 0.45,
+  baseWindow: 3200,
+  weakBase: 9000,             // ms the weak point stays open at combo quality 1, full speed
+  beamTaps: 300,              // taps to reach 100%
+  aiTapsPerSec: 3.5,          // pooled teammate charging when the fight is calm, scaled by slowdown
+  beamDrainTaps: 30,          // taps lost on a fully missed block (× 1-q). Set 0 to disable.
+  fireMin: 0.6,
+  beamDmg: c => Math.round(80 * Math.exp(9 * (c - 0.6))),  // 60%→80 · 70%→197 · 85%→760 · 100%→2930
+  aiMin: 0.75, aiMax: 1.0, aiDelay: [700, 1500],
+  playerOpeningBias: 0.45,
+  mashGrace: 1000,
+  emergencyEvery: [28000, 42000], repairTaps: 22, brokenDamageMult: 1.3,
+  // hidden slowdown: exponential in damage taken. slowMax = multiplier at 0% HP; slowK = how back-loaded (higher = flatter early, steeper late)
+  slowMax: 2.4, slowK: 3,
+};
+const MOVES = {
+  "Left arm":  ["Grapple Slam", "Shield Bash", "Piston Jab"],
+  "Right arm": ["Blade Strike", "Hook Punch", "Shoulder Cannon"],
+  "Head":      ["Beam Lock", "Sonic Roar", "Eye Laser"],
+  "Legs":      ["Power Kick", "Knee Drive", "Stomp"],
+};
+const STATIONS = Object.keys(MOVES);
+const PLAYER = "Right arm";
+const ATTACKS = ["Tail sweep", "Claw swipe", "Bite", "Charge", "Acid spray", "Ground pound", "Wing buffet", "Spine volley"];
+const FAILURES = ["Coolant line ruptured", "Gyro misaligned", "Power coupling blown", "Targeting array offline", "Hydraulics leaking"];
+
+// ---------- Helpers ----------
+const $ = id => document.getElementById(id);
+const rand = (a, b) => a + Math.random() * (b - a);
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+const grade = q => q >= 0.9 ? "perfect" : q >= 0.7 ? "great" : q >= 0.45 ? "ok" : q >= 0.2 ? "weak" : "miss";
+
+// ---------- State ----------
+let S;
+function reset() {
+  S = { hp: 100, khp: K.kaijuHP, taps: 0, t0: performance.now(), last: performance.now(),
+        nextAttack: 0, nextEmergency: 0, over: false, broken: false, repair: 0,
+        blockBusy: false, opening: null,
+        combo: 0, comboScores: [], weakUntil: 0, weakLen: 0,
+        blocks: 0, attacks: 0, beams: 0, playerTaps: 0, playerScores: [] };
+  S.nextAttack = S.t0 + 2500;
+  S.nextEmergency = S.t0 + rand(...K.emergencyEvery);
+  $("feed").innerHTML = ""; $("repairOpen").hidden = true;
+  def.clear(); atk.clear();
+  setLane("def", "idle", "Defense", "Watching the kaiju…", "");
+  setLane("atk", "idle", "", "No opening", "");
+  draw();
+}
+const hpFrac = () => S.khp / K.kaijuHP;
+function slow() {
+  const d = 1 - hpFrac();  // damage taken, 0..1
+  return 1 + (K.slowMax - 1) * (Math.exp(K.slowK * d) - 1) / (Math.exp(K.slowK) - 1);
+}
+const speed = () => 1 / slow();
+const beamFrac = () => clamp(S.taps / K.beamTaps);
+const aiScore = () => rand(K.aiMin, K.aiMax);
+const away = () => !$("emerg").hidden;
+const weakOpen = () => performance.now() < S.weakUntil;
+
+// ---------- Main loop ----------
+function tick(now) {
+  if (S.over) return;
+  const dt = (now - S.last) / 1000; S.last = now;
+  // teammates charge when they have nothing else to do; a slower kaiju means more free hands
+  S.taps = Math.min(K.beamTaps, S.taps + K.aiTapsPerSec * slow() * dt * (S.blockBusy ? 0.5 : 1));
+
+  if (!S.blockBusy && !S.opening && !S.broken && now >= S.nextEmergency) triggerEmergency();
+  if (!S.blockBusy && now >= S.nextAttack) kaijuAttack(now);
+  if (S.opening && !S.opening.started && now >= S.opening.deadline) expireOpening();
+  if (S.weakLen && !weakOpen()) { S.weakLen = 0; feed("Kaiju", "weak point closed", 0.3, ""); }
+
+  def.frame(now); atk.frame(now);
+  draw(); devStats();
+  requestAnimationFrame(tick);
+}
+
+// ---------- Defense lane ----------
+function kaijuAttack(now) {
+  S.blockBusy = true;
+  const target = pick(STATIONS), name = pick(ATTACKS);
+  if (target === PLAYER) {
+    if (away()) { setLane("def", "on", "Kaiju attacks · your station", name, "Unmanned!"); setTimeout(() => resolveBlock(0, target, true), 900); return; }
+    setLane("def", "on", "Kaiju attacks · your station", name, "BLOCK");
+    def.run(pick(["rings", "sweep", "hold"]), speed(), q => resolveBlock(q, target));
+  } else {
+    setLane("def", "on", `Kaiju attacks · ${target}`, name, `${target} is blocking…`);
+    setTimeout(() => resolveBlock(aiScore(), target), rand(...K.aiDelay));
+  }
+}
+function resolveBlock(q, station, unmanned = false) {
+  S.blocks++;
+  if (station === PLAYER && !unmanned) S.playerScores.push(q);
+  const dmg = Math.round(K.baseDamage * (1 - q) / slow() * (S.broken ? K.brokenDamageMult : 1));
+  if (dmg > 0) { S.hp = Math.max(0, S.hp - dmg); S.taps = Math.max(0, S.taps - K.beamDrainTaps * (1 - q)); flashBody("flash"); }
+  feed(station, unmanned ? "unmanned" : `block ${grade(q)}`, q, dmg ? `−${dmg}` : "");
+  if (S.hp <= 0) return end(false);
+  S.blockBusy = false;
+  S.nextAttack = performance.now() + K.baseInterval * slow() * rand(1 - K.intervalJitter, 1 + K.intervalJitter);
+  setLane("def", "idle", "Defense", "Watching the kaiju…", "");
+  if (q >= K.counterMinQ && !S.opening) openAttack(q, station);
+}
+
+// ---------- Attack lane ----------
+function openAttack(q, blocker) {
+  const pool = STATIONS.filter(s => s !== blocker);
+  const who = (blocker !== PLAYER && Math.random() < K.playerOpeningBias) ? PLAYER : pick(pool);
+  const move = pick(MOVES[who]);
+  const win = K.baseWindow * q * slow();
+  S.opening = { who, move, q, deadline: performance.now() + win, started: false };
+  if (who === PLAYER) {
+    setLane("atk", "on", `${blocker} opened it · shout it`, move + "!", "Press your move, then play it");
+    if (!away()) highlightMove(move);
+  } else {
+    setLane("atk", "on", `${blocker} opened it`, move + "!", `${who} is attacking…`);
+    setTimeout(() => { if (S.opening && S.opening.move === move) resolveAttack(aiScore(), who, move); }, Math.min(win, rand(...K.aiDelay)));
+  }
+}
+function pressMove(move, btn) {
+  if (!S || S.over) return;
+  const o = S.opening;
+  if (!o || o.who !== PLAYER || o.started || o.move !== move) { btn.classList.add("wrong"); setTimeout(() => btn.classList.remove("wrong"), 300); return; }
+  o.started = true; highlightMove(null);
+  const left = o.deadline - performance.now();
+  setLane("atk", "on", "Your attack", move, "GO");
+  atk.run(pick(["mash", "sequence", "rings"]), speed(), a => resolveAttack(a, PLAYER, move), Math.max(600, left));
+}
+function expireOpening() {
+  const o = S.opening; S.opening = null; highlightMove(null);
+  breakCombo(); feed(o.who, `${o.move.toLowerCase()} missed the window`, 0, "");
+  setLane("atk", "idle", "", "No opening", "");
+}
+function resolveAttack(a, who, move) {
+  S.opening = null; S.attacks++;
+  if (who === PLAYER) S.playerScores.push(a);
+  const dmg = Math.round(K.attackDamage * a);
+  S.khp = Math.max(0, S.khp - dmg);
+  if (a >= K.comboMinScore) { S.combo++; S.comboScores.push(a); } else breakCombo();
+  feed(who, `${move.toLowerCase()} ${grade(a)}`, a, dmg ? `−${dmg}` : "");
+  if (S.combo >= K.comboThreshold) exposeWeakPoint();
+  setLane("atk", "idle", "", "No opening", "");
+  if (S.khp <= 0) end(true);
+}
+function breakCombo() { if (S.combo) feed("Team", `combo broken at ${S.combo}`, 0.2, ""); S.combo = 0; S.comboScores = []; }
+function exposeWeakPoint() {
+  const quality = S.comboScores.reduce((x, y) => x + y, 0) / S.comboScores.length;
+  S.weakLen = K.weakBase * quality * slow();
+  S.weakUntil = performance.now() + S.weakLen;
+  S.combo = 0; S.comboScores = [];
+  feed("Kaiju", "WEAK POINT EXPOSED", 1, "");
+  flashBody("beamflash");
+}
+
+// ---------- Beam ----------
+function chargeTap() { if (!S || S.over) return; S.taps = Math.min(K.beamTaps, S.taps + 1); S.playerTaps++; }
+function fire() {
+  if (!S || S.over) return;
+  const c = beamFrac();
+  if (c < K.fireMin || !weakOpen()) return;
+  const dmg = K.beamDmg(c);
+  S.khp = Math.max(0, S.khp - dmg); S.beams++;
+  feed("Team", `HYPER BEAM at ${Math.round(c * 100)}%`, 1, `−${dmg}`, "beam");
+  S.taps = 0; S.weakUntil = 0; S.weakLen = 0;
+  flashBody("beamflash");
+  if (S.khp <= 0) end(true);
+}
+
+// ---------- Emergencies ----------
+function triggerEmergency() {
+  S.broken = true; S.repair = 0;
+  $("emergText").textContent = pick(FAILURES) + ". Mash to repair. You can't see the fight while you're here.";
+  $("repairFill").style.width = "0%"; $("emerg").hidden = false; $("repairOpen").hidden = true;
+  feed("Robot", "system failure", 0, "");
+}
+function repairTap() {
+  S.repair++; $("repairFill").style.width = (S.repair / K.repairTaps * 100) + "%";
+  if (S.repair >= K.repairTaps) { S.broken = false; $("emerg").hidden = true; $("repairOpen").hidden = true; S.nextEmergency = performance.now() + rand(...K.emergencyEvery); feed(PLAYER, "system repaired", 1, ""); }
+}
+function leaveRepair() { $("emerg").hidden = true; if (S.broken) { $("repairOpen").hidden = false; feed(PLAYER, "back at post, system still down", 0.3, ""); } if (S.opening && S.opening.who === PLAYER && !S.opening.started) highlightMove(S.opening.move); }
+
+// ---------- Lanes ----------
+class Lane {
+  constructor(id) { this.cv = $(id); this.ctx = this.cv.getContext("2d"); this.mg = null; this.size();
+    if (window.ResizeObserver) new ResizeObserver(() => this.size()).observe(this.cv);
+    this.cv.addEventListener("pointerdown", e => { e.preventDefault(); if (!this.mg) return; const r = this.cv.getBoundingClientRect(); this.mg.down(e.clientX - r.left, e.clientY - r.top, performance.now()); });
+    this.cv.addEventListener("pointerup", e => { e.preventDefault(); if (this.mg) this.mg.up(performance.now()); });
+    this.cv.addEventListener("pointercancel", () => { if (this.mg) this.mg.up(performance.now()); }); }
+  size() { const r = this.cv.getBoundingClientRect(); const dpr = devicePixelRatio || 1; this.cv.width = r.width * dpr; this.cv.height = r.height * dpr; this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0); this.W = r.width; this.H = r.height; }
+  run(type, spd, cb, maxMs) { const mg = new MG[type](spd, maxMs); mg.startT = performance.now(); mg.W = this.W; mg.H = this.H; this.mg = mg; this.cb = cb; }
+  clear() { this.mg = null; this.ctx.clearRect(0, 0, this.W, this.H); this.ctx.fillStyle = "#070a0e"; this.ctx.fillRect(0, 0, this.W, this.H); }
+  frame(now) { const c = this.ctx; c.clearRect(0, 0, this.W, this.H); c.fillStyle = "#070a0e"; c.fillRect(0, 0, this.W, this.H);
+    if (!this.mg) return;
+    const r = this.mg.update(now); this.mg.draw(c, this.W, this.H, now);
+    if (r.done) { const mg = this.mg; this.mg = null; this.cb(r.score, now - mg.startT); } }
+}
+
+// ---------- Microgames: score 0–1, run at `spd` (lower = slower = easier) ----------
+const font = (px, bold) => `${bold ? 700 : 600} ${px}px "Chakra Petch", sans-serif`;
+function label(c, w, text, y = 18) { c.fillStyle = "#7b8da0"; c.font = font(11); c.textAlign = "center"; c.textBaseline = "alphabetic"; c.fillText(text.toUpperCase(), w / 2, y); }
+function result(c, w, h, score) { c.fillStyle = score >= 0.7 ? "#4ddc8a" : score >= 0.45 ? "#d9e4ee" : "#ff4d4d"; c.font = font(24, true); c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(grade(score).toUpperCase(), w / 2, h / 2 + 6); }
+const HOLD_RESULT = 500;
+
+class Base {
+  constructor(spd, maxMs) { this.spd = spd; this.T = maxMs || this.constructor.baseT / spd; this.doneAt = null; this.score = 0; }
+  finish(score, now) { if (this.doneAt) return; this.score = clamp(score); this.doneAt = now; }
+  update(now) { if (this.doneAt) return { done: now - this.doneAt > HOLD_RESULT, score: this.score }; if (now - this.startT >= this.T) this.finish(this.timeoutScore ? this.timeoutScore() : 0, now); return { done: false }; }
+  timebar(c, w, h, now) { const left = clamp(1 - (now - this.startT) / this.T); c.fillStyle = "#52d6ff"; c.fillRect(16, h - 8, (w - 32) * left, 4); }
+  down() {} up() {}
+}
+class Rings extends Base {
+  static baseT = 2400; meet = 0.68;
+  draw(c, w, h, now) {
+    const p = clamp((now - this.startT) / this.T), cx = w / 2, cy = h / 2 + 8, Rmax = Math.min(w, h) * 0.42, Rmin = Rmax * 0.3, Rmid = Rmin + (Rmax - Rmin) * 0.5;
+    const outer = Rmax - (Rmax - Rmid) * (p / this.meet), inner = Rmin + (Rmid - Rmin) * (p / this.meet);
+    label(c, w, "tap when the rings touch");
+    c.lineWidth = 3; c.strokeStyle = "#52d6ff"; c.beginPath(); c.arc(cx, cy, Math.max(2, outer), 0, 7); c.stroke();
+    c.strokeStyle = "#ffb224"; c.beginPath(); c.arc(cx, cy, Math.max(2, inner), 0, 7); c.stroke();
+    c.strokeStyle = "rgba(255,255,255,.12)"; c.setLineDash([4, 6]); c.beginPath(); c.arc(cx, cy, Rmid, 0, 7); c.stroke(); c.setLineDash([]);
+    if (this.doneAt) result(c, w, h, this.score);
+  }
+  down(x, y, now) { const p = (now - this.startT) / this.T; this.finish(1 - Math.abs(p - this.meet) / 0.2, now); }
+}
+class Sweep extends Base {
+  static baseT = 2800;
+  constructor(s, m) { super(s, m); this.period = 1000 / s; this.c = rand(0.2, 0.8); this.hw = 0.09; }
+  pos(now) { const t = ((now - this.startT) % this.period) / this.period; return t < 0.5 ? t * 2 : 2 - t * 2; }
+  draw(c, w, h, now) {
+    label(c, w, "tap when the marker is in the green");
+    const x0 = 24, x1 = w - 24, y = h / 2 + 6;
+    c.fillStyle = "#1a2430"; c.fillRect(x0, y - 14, x1 - x0, 28);
+    c.fillStyle = "rgba(77,220,138,.6)"; c.fillRect(x0 + (this.c - this.hw) * (x1 - x0), y - 14, this.hw * 2 * (x1 - x0), 28);
+    const p = this.doneAt ? this.hit : this.pos(now);
+    c.fillStyle = "#ffb224"; c.fillRect(x0 + p * (x1 - x0) - 3, y - 22, 6, 44);
+    this.timebar(c, w, h, now);
+    if (this.doneAt) result(c, w, h, this.score);
+  }
+  down(x, y, now) { this.hit = this.pos(now); this.finish(1 - Math.abs(this.hit - this.c) / 0.18, now); }
+}
+class Hold extends Base {
+  static baseT = 3000;
+  constructor(s, m) { super(s, m); this.fillT = 1500 / s; this.sweet = 0.78; this.downT = null; this.fill = 0; }
+  update(now) { if (this.downT && !this.doneAt) { this.fill = (now - this.downT) / this.fillT; if (this.fill > 1) this.finish(0, now); } return super.update(now); }
+  draw(c, w, h, now) {
+    label(c, w, "hold to fill, release in the band");
+    const x0 = 24, x1 = w - 24, y = h / 2 + 6;
+    c.fillStyle = "#1a2430"; c.fillRect(x0, y - 14, x1 - x0, 28);
+    c.fillStyle = "rgba(77,220,138,.6)"; c.fillRect(x0 + (this.sweet - 0.08) * (x1 - x0), y - 14, 0.16 * (x1 - x0), 28);
+    c.fillStyle = this.fill > 1 ? "#ff4d4d" : "#ffb224"; c.fillRect(x0, y - 14, (x1 - x0) * clamp(this.fill), 28);
+    this.timebar(c, w, h, now);
+    if (this.doneAt) result(c, w, h, this.score);
+  }
+  down(x, y, now) { if (!this.downT) this.downT = now; }
+  up(now) { if (this.downT && !this.doneAt) this.finish(1 - Math.abs(this.fill - this.sweet) / 0.16, now); }
+}
+class Mash extends Base {
+  static baseT = 2400;
+  constructor(s, m) { super(s, m); this.T += K.mashGrace; this.fill = 0.25; this.drain = 0.5 * s; this.lastT = null; }
+  update(now) { if (!this.doneAt) { const dt = (now - (this.lastT || now)) / 1000; this.lastT = now; if (now - this.startT > K.mashGrace) this.fill = clamp(this.fill - this.drain * dt); } return super.update(now); }
+  timeoutScore() { return this.fill; }
+  draw(c, w, h, now) {
+    const grace = now - this.startT < K.mashGrace;
+    label(c, w, grace ? "mash! get ready…" : "mash! keep the bar up");
+    const x0 = 24, x1 = w - 24, y = h / 2 - 12;
+    c.fillStyle = "#1a2430"; c.fillRect(x0, y, x1 - x0, 36);
+    c.fillStyle = this.fill > 0.7 ? "#4ddc8a" : this.fill > 0.45 ? "#ffb224" : "#ff4d4d"; c.fillRect(x0, y, (x1 - x0) * this.fill, 36);
+    this.timebar(c, w, h, now);
+    if (this.doneAt) result(c, w, h, this.score);
+  }
+  down() { if (!this.doneAt) this.fill = clamp(this.fill + 0.09); }
+}
+class Sequence extends Base {
+  static baseT = 3200;
+  constructor(s, m) { super(s, m); this.seq = Array.from({ length: 4 }, () => pick(["up", "down", "left", "right"])); this.i = 0; this.wrong = 0; }
+  timeoutScore() { return this.i / 4 * 0.5 - this.wrong * 0.15; }
+  draw(c, w, h, now) {
+    label(c, w, "tap the arrows in order");
+    const cx = w / 2, cy = h / 2 + 10, d = Math.min(w, h) * 0.3;
+    const pts = { up: [cx, cy - d], down: [cx, cy + d], left: [cx - d, cy], right: [cx + d, cy] };
+    const glyph = { up: "▲", down: "▼", left: "◀", right: "▶" };
+    for (const k in pts) { c.fillStyle = "#1a2430"; c.beginPath(); c.arc(pts[k][0], pts[k][1], 20, 0, 7); c.fill(); c.fillStyle = "#7b8da0"; c.font = font(16); c.textAlign = "center"; c.textBaseline = "middle"; c.fillText(glyph[k], pts[k][0], pts[k][1] + 1); }
+    c.font = font(20, true); c.textBaseline = "middle";
+    this.seq.forEach((k, i) => { c.fillStyle = i < this.i ? "#4ddc8a" : i === this.i ? "#ffb224" : "#3a4a5a"; c.fillText(glyph[k], cx - 48 + i * 32, 38); });
+    this.timebar(c, w, h, now);
+    if (this.doneAt) result(c, w, h, this.score);
+  }
+  down(x, y, now) {
+    if (this.doneAt) return;
+    const cx = this.W / 2, cy = this.H / 2 + 10, dx = x - cx, dy = y - cy;
+    const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up");
+    if (dir === this.seq[this.i]) { this.i++; if (this.i === 4) this.finish(0.5 + 0.5 * (1 - (now - this.startT) / this.T) - this.wrong * 0.15, now); }
+    else this.wrong++;
+  }
+}
+const MG = { rings: Rings, sweep: Sweep, hold: Hold, mash: Mash, sequence: Sequence };
+
+// ---------- UI ----------
+function setLane(which, cls, kind, text, hint) {
+  const el = $(which === "def" ? "laneDef" : "laneAtk"); el.className = `lane ${which} ${cls}`;
+  const p = which === "def" ? "d" : "a"; $(p + "Text").textContent = text; $(p + "Hint").textContent = hint;
+  if (which === "def") $("dKind").textContent = kind; else $("aKind").textContent = kind ? `${kind} · combo ${S.combo}/${K.comboThreshold}` : `Attack · combo ${S.combo}/${K.comboThreshold}`;
+}
+function feed(who, what, q, delta, cls) {
+  const f = $("feed"); const d = document.createElement("div");
+  d.innerHTML = `<span class="who">${who}</span><span class="g-${cls || grade(q)}">${what}</span><span>${delta}</span>`;
+  f.prepend(d); while (f.children.length > 3) f.lastChild.remove();
+}
+function flashBody(cls) { document.body.classList.remove(cls); void document.body.offsetWidth; document.body.classList.add(cls); }
+function draw() {
+  $("hpNum").textContent = Math.round(S.hp); $("hpFill").style.width = S.hp + "%";
+  $("kFill").style.width = (hpFrac() * 100) + "%";
+  const open = weakOpen();
+  $("kBar").classList.toggle("weak", open);
+  $("kState").textContent = open ? "WEAK POINT EXPOSED" : "weak point closed";
+  $("weakFill").style.width = open ? ((S.weakUntil - performance.now()) / S.weakLen * 100) + "%" : "0%";
+  const c = beamFrac();
+  $("beamNum").textContent = Math.round(c * 100) + "%"; $("beamFill").style.width = (c * 100) + "%";
+  const can = c >= K.fireMin && open;
+  $("fireBtn").disabled = !can; $("fireBtn").classList.toggle("armed", can);
+  $("fireDmg").textContent = c >= K.fireMin ? `${K.beamDmg(c)} dmg${open ? "" : " · needs weak point"}` : "needs 60% + weak point";
+  $("aKind").textContent = $("aKind").textContent.replace(/combo \d+\/\d+/, `combo ${S.combo}/${K.comboThreshold}`);
+  const s = Math.floor((performance.now() - S.t0) / 1000); $("clock").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+function devStats() {
+  if ($("dev").hidden) return;
+  const avg = S.playerScores.length ? (S.playerScores.reduce((a, b) => a + b, 0) / S.playerScores.length).toFixed(2) : "–";
+  $("dev").textContent = `kaiju ${Math.round(hpFrac() * 100)}% · slow ×${slow().toFixed(2)} · interval ${(K.baseInterval * slow() / 1000).toFixed(1)}s · blocks ${S.blocks} · attacks ${S.attacks} · beams ${S.beams} · your taps ${S.playerTaps} · your avg ${avg} · broken ${S.broken}`;
+}
+function end(win) {
+  S.over = true; def.clear(); atk.clear(); highlightMove(null);
+  const secs = Math.floor((performance.now() - S.t0) / 1000);
+  const avg = S.playerScores.length ? Math.round(S.playerScores.reduce((a, b) => a + b, 0) / S.playerScores.length * 100) : 0;
+  const o = $("intro"); o.hidden = false;
+  o.querySelector("h2").textContent = win ? "Kaiju destroyed" : "Robot down";
+  o.querySelector("p").textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}. Your average: ${avg}%. Beams fired: ${S.beams}. Team blocks ${S.blocks}, attacks ${S.attacks}.` + (win ? "" : ` Kaiju had ${Math.round(hpFrac() * 100)}% left.`);
+  o.querySelector(".how").hidden = true; $("startBtn").textContent = "Fight again";
+}
+function highlightMove(move) { document.querySelectorAll("#moves button").forEach(b => b.classList.toggle("call", b.dataset.move === move)); }
+
+// ---------- Boot ----------
+$("who").textContent = `You: ${PLAYER} · 3 AI teammates`;
+for (const m of MOVES[PLAYER]) { const b = document.createElement("button"); b.textContent = m; b.dataset.move = m; b.addEventListener("pointerdown", e => { e.preventDefault(); pressMove(m, b); }); $("moves").appendChild(b); }
+const def = new Lane("cvDef"), atk = new Lane("cvAtk");
+addEventListener("resize", () => { def.size(); atk.size(); });
+$("startBtn").addEventListener("click", () => { $("intro").hidden = true; def.size(); atk.size(); reset(); requestAnimationFrame(tick); });
+$("chargeBtn").addEventListener("pointerdown", e => { e.preventDefault(); chargeTap(); });
+$("fireBtn").addEventListener("pointerdown", e => { e.preventDefault(); fire(); });
+$("repairBtn").addEventListener("pointerdown", e => { e.preventDefault(); repairTap(); });
+$("repairBack").addEventListener("click", leaveRepair);
+$("repairOpen").addEventListener("click", () => { $("emerg").hidden = false; highlightMove(null); });
+$("devToggle").addEventListener("click", () => { $("dev").hidden = !$("dev").hidden; });
+</script>
+</body>
+</html>

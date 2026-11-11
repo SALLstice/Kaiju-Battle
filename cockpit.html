@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kaiju Battle</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+<style>
+[hidden]{display:none!important}
+/* Layout: one-screen cockpit. HUD strip on top (bars + incoming alert), 2x2 station grid below. Single dark look by choice. */
+:root {
+  --bg: #0b0f14;
+  --panel: #121a22;
+  --panel-edge: #223040;
+  --fg: #d9e4ee;
+  --dim: #7b8da0;
+  --amber: #ffb224;
+  --amber-deep: #c7780a;
+  --red: #ff4d4d;
+  --green: #4ddc8a;
+  --cyan: #52d6ff;
+  --display: "Chakra Petch", "Arial Narrow", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { min-height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font-family: var(--mono);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 10px; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 10px;
+  -webkit-user-select: none; user-select: none; touch-action: manipulation;
+}
+h1 { font-family: var(--display); font-size: 1.05rem; letter-spacing: .14em; text-transform: uppercase; margin: 0; color: var(--amber); display: flex; justify-content: space-between; align-items: baseline; }
+h1 small { font-family: var(--mono); font-size: .7rem; color: var(--dim); letter-spacing: .04em; text-transform: none; }
+
+.bars { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.bar { background: var(--panel); border: 1px solid var(--panel-edge); padding: 6px 8px; min-width: 0; }
+.bar label { display: flex; justify-content: space-between; font-size: .68rem; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); font-variant-numeric: tabular-nums; }
+.bar .track { height: 10px; background: #0a0d11; margin-top: 4px; overflow: hidden; }
+.bar .fill { height: 100%; width: 100%; transition: width .2s; }
+#robotFill { background: var(--cyan); }
+#kaijuFill { background: var(--red); }
+#finFill { background: var(--amber); width: 0; }
+.bar.fin { grid-column: 1 / -1; }
+.bar.fin.ready { border-color: var(--amber); box-shadow: 0 0 14px rgba(255,178,36,.35); }
+
+.alert {
+  background: var(--panel); border: 1px solid var(--panel-edge); padding: 10px 12px; min-height: 86px;
+  display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center;
+}
+.alert .who { grid-column: 1 / -1; font-size: .66rem; letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }
+.alert .name { font-family: var(--display); font-size: 1.25rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; text-wrap: balance; }
+.alert .say { grid-column: 1; font-size: .82rem; color: var(--amber); }
+.alert .timer { grid-row: 2 / 4; grid-column: 2; font-family: var(--display); font-size: 2.4rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--fg); min-width: 2.2ch; text-align: right; }
+.alert.finisher .timer { font-size: 1.6rem; }
+.alert.danger { border-color: var(--red); }
+.alert.danger .timer { color: var(--red); }
+.alert.opening { border-color: var(--green); }
+.alert.finisher { border-color: var(--amber); background: #1a1408; }
+.alert.idle .name { color: var(--dim); font-size: 1rem; }
+
+.stations { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.station { background: var(--panel); border: 1px solid var(--panel-edge); padding: 8px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.station.lit { border-color: var(--amber); }
+.station h2 { margin: 0; font-family: var(--display); font-size: .78rem; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); display: flex; justify-content: space-between; }
+.station.lit h2 { color: var(--amber); }
+.station .btns { display: grid; gap: 6px; }
+button.act {
+  font: 600 .86rem var(--display); letter-spacing: .08em; text-transform: uppercase;
+  background: #0d1218; color: var(--fg); border: 1px solid #2b3a4a; border-bottom-width: 3px;
+  padding: 12px 6px; cursor: pointer; min-height: 46px;
+}
+button.act:active, button.act.down { transform: translateY(2px); border-bottom-width: 1px; background: #1a2430; }
+button.act:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+button.act.hit { background: var(--green); color: #052; border-color: var(--green); }
+button.act.miss { background: #3a1212; border-color: var(--red); }
+button.act.fire { background: var(--amber-deep); border-color: var(--amber); color: #1a0f00; font-size: 1rem; }
+button.act.fire.armed { background: var(--amber); }
+
+.log { font-size: .7rem; color: var(--dim); min-height: 1.2em; font-variant-numeric: tabular-nums; }
+.log b { color: var(--fg); font-weight: 600; }
+
+.overlay { position: fixed; inset: 0; background: rgba(5,8,12,.92); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 24px; z-index: 20; }
+.overlay h2 { font-family: var(--display); font-size: 2rem; margin: 0; text-transform: uppercase; letter-spacing: .08em; color: var(--amber); text-wrap: balance; }
+.overlay p { max-width: 36ch; color: var(--dim); margin: 0; line-height: 1.5; font-size: .85rem; }
+.overlay button { font: 700 1rem var(--display); letter-spacing: .1em; text-transform: uppercase; background: var(--amber); color: #1a0f00; border: 0; padding: 14px 28px; cursor: pointer; }
+.overlay .how { text-align: left; font-size: .78rem; color: var(--fg); max-width: 40ch; line-height: 1.55; }
+.overlay .how span { color: var(--amber); }
+
+.flash { animation: flash .35s; }
+@keyframes flash { 0% { background: #3a1212; } 100% { background: var(--bg); } }
+@media (prefers-reduced-motion: reduce) { .flash { animation: none; } .bar .fill { transition: none; } }
+@media (min-width: 720px) {
+  body { max-width: 860px; margin: 0 auto; }
+  .stations { grid-template-columns: repeat(4, 1fr); }
+  .station .btns { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<h1>Kaiju Battle <small>solo cockpit test · all 4 stations are yours</small></h1>
+
+<div class="bars">
+  <div class="bar"><label><span>Robot integrity</span><span id="robotNum">100</span></label><div class="track"><div class="fill" id="robotFill"></div></div></div>
+  <div class="bar"><label><span>Kaiju</span><span id="kaijuNum">100</span></label><div class="track"><div class="fill" id="kaijuFill"></div></div></div>
+  <div class="bar fin" id="finBar"><label><span>Finisher charge</span><span id="finNum">0%</span></label><div class="track"><div class="fill" id="finFill"></div></div></div>
+</div>
+
+<div class="alert idle" id="alert">
+  <div class="who" id="aWho">Standby</div>
+  <div class="name" id="aName">Scanning…</div>
+  <div class="say" id="aSay"></div>
+  <div class="timer" id="aTimer"></div>
+</div>
+
+<div class="log" id="log">Tap START. Events appear on one station; the buttons that answer them are usually on another.</div>
+<div class="stations" id="stations"></div>
+
+<div class="overlay" id="overlay">
+  <h2>Kaiju Battle</h2>
+  <p>Prototype of the core loop. In the real game each panel is a different person's phone. Here you play all four.</p>
+  <div class="how">
+    <span>Yellow panel</span> = the station that sees the threat.<br>
+    <span>Callout text</span> = what that player would shout.<br>
+    Press the named buttons before the timer hits 0. Some need a specific order.<br>
+    Wrong buttons cost a little integrity. Fill the charge to unlock the Hyper Beam.<br>
+    <span>Hyper Beam:</span> every panel turns into one big FIRE button. Tap all four within 2.5 seconds of the first tap.
+  </div>
+  <button id="startBtn">Start fight</button>
+</div>
+
+<script>
+const STATIONS = {
+  LEFT:  { label: "Left arm",  actions: ["GUARD", "GRAPPLE", "PUNCH"] },
+  RIGHT: { label: "Right arm", actions: ["PARRY", "BLADE", "FIRE"] },
+  HEAD:  { label: "Head",      actions: ["SCAN", "BEAM LOCK", "CANNON"] },
+  LEGS:  { label: "Legs",      actions: ["ANCHOR", "DODGE", "VENT"] },
+};
+
+// The whole fight is data. `at` is ms from fight start; `shownTo` sees it; `requires` answers it.
+// kind: defend (fail = robot damage), attack (success = kaiju damage + charge).
+const TIMELINE = [
+  { at: 2500,  kind:"defend", name:"Tail sweep",          shownTo:"HEAD",  say:"Anchor legs, then guard left!",  requires:[["LEGS","ANCHOR"],["LEFT","GUARD"]], ordered:true,  window:4500, dmg:15 },
+  { at: 9000,  kind:"defend", name:"Projectile incoming",  shownTo:"LEGS",  say:"Parry right!",                   requires:[["RIGHT","PARRY"]],                   window:3000, dmg:10 },
+  { at: 14000, kind:"attack", name:"Chest armor open",     shownTo:"RIGHT", say:"Head, fire the cannon!",          requires:[["HEAD","CANNON"]],                   window:3000, dmg:12, charge:20 },
+  { at: 19500, kind:"defend", name:"Kaiju charging",       shownTo:"LEFT",  say:"Dodge! Then grapple!",           requires:[["LEGS","DODGE"],["LEFT","GRAPPLE"]], ordered:true,  window:4000, dmg:18 },
+  { at: 25500, kind:"defend", name:"Reactor overheating",  shownTo:"HEAD",  say:"Legs, vent now!",                requires:[["LEGS","VENT"]],                     window:2800, dmg:12 },
+  { at: 30000, kind:"attack", name:"Weak point exposed",   shownTo:"LEGS",  say:"Blade strike, then beam lock!",  requires:[["RIGHT","BLADE"],["HEAD","BEAM LOCK"]], ordered:true, window:4000, dmg:16, charge:30 },
+  { at: 36000, kind:"defend", name:"Twin claw swipe",      shownTo:"RIGHT", say:"Guard left AND parry right!",    requires:[["LEFT","GUARD"],["RIGHT","PARRY"]],  window:3200, dmg:20 },
+  { at: 41000, kind:"defend", name:"Acid spray",           shownTo:"LEFT",  say:"Scan it! Then dodge!",           requires:[["HEAD","SCAN"],["LEGS","DODGE"]], ordered:true, window:3800, dmg:14 },
+  { at: 46500, kind:"attack", name:"Kaiju staggered",      shownTo:"HEAD",  say:"Punch! Fire! Go go go!",         requires:[["LEFT","PUNCH"],["RIGHT","FIRE"]],   window:3200, dmg:14, charge:30 },
+  { at: 52000, kind:"defend", name:"Ground pound",         shownTo:"RIGHT", say:"Anchor!",                        requires:[["LEGS","ANCHOR"]],                   window:2200, dmg:16 },
+  { at: 56000, kind:"attack", name:"Jaw wide open",        shownTo:"LEFT",  say:"Beam lock, cannon, NOW!",        requires:[["HEAD","BEAM LOCK"],["HEAD","CANNON"]], ordered:true, window:3400, dmg:18, charge:30 },
+  { at: 61500, kind:"defend", name:"Tail sweep",           shownTo:"LEGS",  say:"Guard left, parry right, anchor!", requires:[["LEFT","GUARD"],["RIGHT","PARRY"],["LEGS","ANCHOR"]], window:4200, dmg:22 },
+];
+const LOOP_GAP = 6000;       // pause before the timeline repeats, tighter
+const FINISHER_WINDOW = 2500; // all four FIRE taps inside this
+const FINISHER_DMG = 45;
+
+let robot, kaiju, charge, t0, pass, loopIdx, current, pressedSoFar, finisher, raf, over, wrongTaps;
+const $ = id => document.getElementById(id);
+
+function buildStations() {
+  const root = $("stations"); root.innerHTML = "";
+  for (const [key, s] of Object.entries(STATIONS)) {
+    const div = document.createElement("div"); div.className = "station"; div.id = "st-" + key;
+    div.innerHTML = `<h2><span>${s.label}</span><span class="tag"></span></h2><div class="btns"></div>`;
+    const btns = div.querySelector(".btns");
+    for (const a of s.actions) {
+      const b = document.createElement("button"); b.className = "act"; b.textContent = a; b.id = `b-${key}-${a.replace(/\s/g,"_")}`;
+      b.addEventListener("pointerdown", e => { e.preventDefault(); press(key, a, b); });
+      btns.appendChild(b);
+    }
+    root.appendChild(div);
+  }
+}
+
+function reset() {
+  robot = 100; kaiju = 100; charge = 0; pass = 0; loopIdx = 0; current = null; pressedSoFar = []; finisher = null; over = false; wrongTaps = 0;
+  t0 = performance.now();
+  setFinisherMode(false);
+  document.querySelectorAll(".station").forEach(s => s.classList.remove("lit"));
+  draw(); showIdle();
+  cancelAnimationFrame(raf); raf = requestAnimationFrame(tick);
+}
+
+function windowScale() { return Math.max(0.55, 1 - pass * 0.15); }
+
+function tick(now) {
+  if (over) return;
+  const t = now - t0;
+  const loopLen = TIMELINE[TIMELINE.length - 1].at + LOOP_GAP;
+  const localT = t - pass * loopLen;
+
+  if (finisher) {
+    if (finisher.deadline) {
+      const left = finisher.deadline - now;
+      $("aTimer").textContent = `${finisher.got.size}/4 · ${(Math.max(0, left) / 1000).toFixed(1)}`;
+      if (left <= 0) { finisherFail(); }
+    } else {
+      $("aTimer").textContent = "0/4";
+    }
+  } else if (current) {
+    const left = current.deadline - now;
+    $("aTimer").textContent = (Math.max(0, left) / 1000).toFixed(1);
+    if (left <= 0) resolve(false);
+  } else if (charge >= 100) {
+    startFinisher(now);
+  } else if (loopIdx < TIMELINE.length && localT >= TIMELINE[loopIdx].at) {
+    spawn(TIMELINE[loopIdx], now); loopIdx++;
+  } else if (loopIdx >= TIMELINE.length && localT >= loopLen) {
+    pass++; loopIdx = 0; log(`Kaiju enraged. Reaction windows ×${windowScale().toFixed(2)}.`);
+  }
+  raf = requestAnimationFrame(tick);
+}
+
+function spawn(ev, now) {
+  current = { ...ev, deadline: now + ev.window * windowScale() };
+  pressedSoFar = [];
+  const a = $("alert"); a.className = "alert " + (ev.kind === "attack" ? "opening" : "danger");
+  $("aWho").textContent = `${STATIONS[ev.shownTo].label} sees:`;
+  $("aName").textContent = ev.name;
+  $("aSay").textContent = "“" + ev.say + "”";
+  document.querySelectorAll(".station").forEach(s => s.classList.toggle("lit", s.id === "st-" + ev.shownTo));
+  for (const [st] of ev.requires) $("st-" + st).querySelector(".tag").textContent = "";
+}
+
+function showIdle() {
+  const a = $("alert"); a.className = "alert idle";
+  $("aWho").textContent = "Standby"; $("aName").textContent = "Scanning…"; $("aSay").textContent = ""; $("aTimer").textContent = "";
+  document.querySelectorAll(".station").forEach(s => s.classList.remove("lit"));
+}
+
+function press(station, action, btn) {
+  if (over) return;
+  flashBtn(btn, "down");
+  if (finisher) {
+    if (!btn.classList.contains("fire")) return;
+    if (!finisher.deadline) finisher.deadline = performance.now() + FINISHER_WINDOW;
+    if (!finisher.got.has(station)) { finisher.got.add(station); btn.classList.add("armed"); }
+    if (finisher.got.size === 4) finisherSuccess();
+    return;
+  }
+  if (!current) { wrongTap(btn, 1); return; }
+  const need = current.requires;
+  const idx = current.ordered
+    ? (need[pressedSoFar.length] && need[pressedSoFar.length][0] === station && need[pressedSoFar.length][1] === action ? pressedSoFar.length : -1)
+    : need.findIndex((r, i) => r[0] === station && r[1] === action && !pressedSoFar.includes(i));
+  if (idx === -1) { wrongTap(btn, 3); return; }
+  pressedSoFar.push(idx); flashBtn(btn, "hit");
+  if (pressedSoFar.length === need.length) resolve(true);
+}
+
+function wrongTap(btn, cost) {
+  flashBtn(btn, "miss"); wrongTaps++;
+  robot = Math.max(0, robot - cost); draw();
+  if (robot <= 0) end(false);
+}
+
+function resolve(success) {
+  const ev = current; current = null;
+  if (ev.kind === "defend") {
+    if (success) { charge = Math.min(100, charge + 8); log(`<b>Blocked</b> ${ev.name}. +8% charge.`); }
+    else { robot = Math.max(0, robot - ev.dmg); document.body.classList.remove("flash"); void document.body.offsetWidth; document.body.classList.add("flash"); log(`<b>Hit</b> by ${ev.name}. −${ev.dmg} integrity.`); }
+  } else {
+    if (success) { kaiju = Math.max(0, kaiju - ev.dmg); charge = Math.min(100, charge + ev.charge); log(`<b>Direct hit!</b> −${ev.dmg} kaiju, +${ev.charge}% charge.`); }
+    else log(`Opening missed: ${ev.name}.`);
+  }
+  draw(); showIdle();
+  if (robot <= 0) end(false); else if (kaiju <= 0) end(true);
+}
+
+function startFinisher(now) {
+  finisher = { deadline: null, got: new Set() };
+  setFinisherMode(true);
+  const a = $("alert"); a.className = "alert finisher";
+  $("aWho").textContent = "Everyone sees:"; $("aName").textContent = "OMEGA TITAN HYPER BEAM";
+  $("aSay").textContent = "Tap FIRE on all 4 panels. Timer starts on your first tap: 2.5s to get the rest.";
+  document.querySelectorAll(".station").forEach(s => s.classList.add("lit"));
+}
+function setFinisherMode(on) {
+  $("finBar").classList.toggle("ready", on);
+  for (const key of Object.keys(STATIONS)) {
+    const st = $("st-" + key); const btns = st.querySelectorAll("button.act");
+    btns.forEach((b, i) => {
+      if (on) { b.dataset.orig = b.textContent; b.textContent = "FIRE"; b.classList.add("fire"); b.classList.remove("armed"); b.hidden = i > 0; }
+      else { if (b.dataset.orig) b.textContent = b.dataset.orig; b.classList.remove("fire", "armed"); b.hidden = false; }
+    });
+  }
+}
+function finisherSuccess() {
+  finisher = null; setFinisherMode(false);
+  kaiju = Math.max(0, kaiju - FINISHER_DMG); charge = 0;
+  log(`<b>HYPER BEAM!</b> −${FINISHER_DMG} kaiju.`); draw(); showIdle();
+  if (kaiju <= 0) end(true);
+}
+function finisherFail() {
+  finisher = null; setFinisherMode(false);
+  charge = 60; log("Beam misfired. Charge dropped to 60%. Try again."); draw(); showIdle();
+}
+
+function draw() {
+  $("robotNum").textContent = robot; $("robotFill").style.width = robot + "%";
+  $("kaijuNum").textContent = kaiju; $("kaijuFill").style.width = kaiju + "%";
+  $("finNum").textContent = charge + "%"; $("finFill").style.width = charge + "%";
+}
+function flashBtn(btn, cls) { btn.classList.add(cls); setTimeout(() => btn.classList.remove(cls), cls === "down" ? 120 : 350); }
+function log(html) { $("log").innerHTML = html; }
+
+function end(win) {
+  over = true; cancelAnimationFrame(raf);
+  const secs = ((performance.now() - t0) / 1000).toFixed(0);
+  const o = $("overlay"); o.hidden = false;
+  o.querySelector("h2").textContent = win ? "Kaiju destroyed" : "Robot down";
+  o.querySelector("p").textContent = win
+    ? `${secs}s. Integrity left: ${robot}. Wrong taps: ${wrongTaps}. Kaiju passes survived: ${pass + 1}.`
+    : `${secs}s. Kaiju at ${kaiju}. Wrong taps: ${wrongTaps}. The timeline loops tighter each pass; windows were at ×${windowScale().toFixed(2)}.`;
+  o.querySelector(".how").hidden = true;
+  $("startBtn").textContent = "Fight again";
+}
+
+buildStations();
+$("startBtn").addEventListener("click", () => { $("overlay").hidden = true; reset(); });
+</script>
+</body>
+</html>
